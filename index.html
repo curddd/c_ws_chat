@@ -1,0 +1,133 @@
+<html>
+<head>
+</head>
+<body>
+<div id="container">
+<div id="chat"></div>
+<input id="textbar">
+</div>
+<ul>
+	<li>!wipe</li>
+	<li>!godark</li>
+</ul>
+<script>
+	function toggleDark(){
+		var body = document.querySelector("body");
+		var b = document.querySelector("#textbar");
+		body.classList.toggle("dark");
+		tb.classList.toggle("dark");
+	}
+	
+	var color_map = [] 
+	
+	function get_color(id){
+		if(!(id in color_map)){
+			color_map[id] = getRandomColor();
+		}
+		return color_map[id];
+	}
+	
+	
+
+	function getRandomColor() {
+  		var letters = '0123456789ABCDEF';
+  		var color = '#';
+  		for (var i = 0; i < 6; i++) {
+    			color += letters[Math.floor(Math.random() * 16)];
+  		}
+  		return color;
+	}
+	
+	function parse_msg(msg){
+		var splitt = msg.split(": ");
+		return {color:get_color(splitt[0]), msg:splitt[1]}
+		
+	}
+
+	function send(event,socket){
+			if(event.keyCode === 13){
+				var val = textBar.value;
+				textBar.value = "";
+				switch(val){
+					case "!godark":
+						toggleDark();
+						return;
+					case "!wipe":
+						document.getElementById('chat').innerHTML="";
+						return;
+					default:
+						break;
+				}
+				socket.send(val);
+			}
+		};
+
+	const annoy = new Audio("annoy.mp3");
+	var chatWindow = document.getElementById("chat");
+	var textBar = document.getElementById("textbar");
+	var container = document.getElementById("container");
+
+	var uri = "ws://"+window.location.hostname + ":8888"
+	function connect(){
+			
+		var socket = new WebSocket(uri);
+		socket.onopen = function(e){
+			socket.addEventListener('message', function (event){
+				var parsed = parse_msg(event.data)
+			
+				document.title = parsed.msg;
+				
+				var span = document.createElement("span");
+				span.innerHTML = "&#8226;&nbsp";
+				chatWindow.appendChild(span);
+				span.style.color = parsed.color;
+
+				var text = document.createTextNode(parsed.msg);
+				chatWindow.appendChild(text);
+				
+				var br = document.createElement("br");
+				chatWindow.appendChild(br);
+				document.body.scrollTop = cont.scrollHeight;
+
+				annoy.play();
+			});
+			textBar.addEventListener("keyup", function(e){
+				send(e,socket);
+			});
+		};
+		socket.onerror = function(e){
+			socket.close();
+		}
+		socket.onclose = function(e){
+			textBar.removeEventListener("keyup", send);
+			setTimeout(function(){
+				connect();
+			}, 1000);
+		}
+		
+	}
+	connect();
+</script>
+<style>
+#container{
+	height: fit-content;
+}
+#chat {
+	line-break:anywhere;
+}
+.dark {
+	background-color: black; 
+	color: grey;
+}
+#textbar{
+	border: 1px solid grey;
+	margin-top: 5px;
+}
+body{
+	display: flex;
+	justify-content: space-between;
+	width: 95%;
+}
+</style>
+</body>
+</html>
