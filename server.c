@@ -12,8 +12,13 @@
 #include <sys/socket.h> 
 #include <netinet/in.h> 
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros 
+
 #include <regex.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <openssl/sha.h>
+#include <time.h>
 #include "b64.c"
 
 #define TRUE   1 
@@ -29,9 +34,18 @@ struct ws_conn{
     unsigned char *msg;
     int msg_fin;
     unsigned char first_byte;
+
+    char *lastbottle;
 };
 
 
+int strpos(char *haystack, char *needle)
+{
+   char *p = strstr(haystack, needle);
+   if (p)
+      return p - haystack;
+   return -1;
+}
 
 char* hash(char* in_string){
 	char *GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -176,7 +190,7 @@ unsigned char *make_out_msg(unsigned char *msg){
 }
 
 void send_all(int client_id, struct ws_conn *clients, unsigned char *msg){
-    printf("%s",msg);
+    
     unsigned char *out_msg;
     size_t msg_len = strlen(msg)+6;
     unsigned char *concat_msg = (unsigned char*) calloc(msg_len, sizeof(unsigned char));
@@ -198,7 +212,137 @@ void send_all(int client_id, struct ws_conn *clients, unsigned char *msg){
         }
     }
 }
-     
+
+void send_one(int client_id, int client_fd, unsigned char *msg){
+    unsigned char *out_msg;
+    size_t msg_len = strlen(msg)+6;
+    unsigned char *concat_msg = (unsigned char*) calloc(msg_len, sizeof(unsigned char));
+    sprintf(concat_msg, "%d: %s",client_id, msg);
+    msg_len = strlen(concat_msg);
+    if(msg_len<=125){
+        msg_len += 2;
+    }
+    else{
+        msg_len += 4;
+    }
+    out_msg = make_out_msg(concat_msg);
+    send(client_fd, out_msg, msg_len,0);
+}
+static char *rand_string(char *str, size_t size)
+{
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJK...";
+    if (size) {
+        --size;
+        for (size_t n = 0; n < size; n++) {
+            int key = rand() % (int) (sizeof charset - 1);
+            str[n] = charset[key];
+        }
+        str[size] = '\0';
+    }
+    return str;
+}
+
+char *read_file(char *path){
+    FILE *fp;
+    long lSize;
+    char *buffer;
+
+    puts("opening file");
+    puts(path);
+    fp = fopen ( path , "r" );
+    if( !fp ) perror(path),exit(1);
+
+    fseek( fp , 0L , SEEK_END);
+    lSize = ftell( fp );
+    rewind( fp );
+
+    /* allocate memory for entire content */
+    buffer = calloc( 1, lSize+1 );
+    if( !buffer ) fclose(fp),fputs("memory alloc fails",stderr),exit(1);
+
+    /* copy the file into the buffer */
+    if( 1!=fread( buffer , lSize, 1 , fp) )
+    fclose(fp),free(buffer),fputs("entire read fails",stderr),exit(1);
+
+    /* do your work here, buffer is a string contains the whole text */
+
+    fclose(fp);
+    
+
+    puts(buffer);
+    return buffer;
+
+    
+}
+
+char *get_bottle(){
+    char *storage = NULL;
+
+	DIR* FD;
+	struct dirent *bottle;
+	struct dirent *in_file;
+	const char *BOTTLE_DIR = "./bottles";
+	FD = opendir(BOTTLE_DIR);
+	char full_path[1024];
+
+    int file_count = 0;
+	while((in_file = readdir(FD))){
+		if(!strcmp(in_file->d_name, "."))
+			continue;
+		if(!strcmp(in_file->d_name, ".."))
+			continue;
+        file_count++;
+    }
+    closedir(FD);
+
+    printf("got files %d",file_count);
+    char *no_bottles = "No bottles at this time...";
+
+    if(file_count == 0){
+        return storage;
+    }
+
+    int rand_file = rand() % file_count;
+    storage = (char*) calloc(100,sizeof(char));
+    int i = 0;
+    FD = opendir(BOTTLE_DIR);
+    while((in_file = readdir(FD))){
+		if(!strcmp(in_file->d_name, "."))
+			continue;
+		if(!strcmp(in_file->d_name, ".."))
+			continue;
+        if(i == rand_file){
+            sprintf(storage, "%s/%s", BOTTLE_DIR, in_file->d_name);
+            break;
+        }
+        i++;
+    }
+
+
+    return storage;
+
+}
+
+
+
+char *store_bottle(char *msg){
+    char bottle_name[11];
+    rand_string(bottle_name,11);
+    
+    char bottle_path[999] = {'\0'};
+    sprintf(bottle_path, "./bottles/%s",bottle_name);
+
+    FILE *fp;
+    fp = fopen(bottle_path, "w");
+    fputs(msg,fp);
+    fclose(fp);
+
+    char *stored_success = "Bottle thrown...\0";
+
+    return stored_success;
+
+}
+
 int main(int argc , char *argv[]){  
     int opt = TRUE;  
     int master_socket , addrlen , new_socket , 
@@ -213,6 +357,12 @@ int main(int argc , char *argv[]){
 
     fd_set readfds;  
             
+    //bottles dir
+    struct stat st = {0};
+    if (stat("./bottles", &st) == -1) {
+        mkdir("./bottles", 0700);
+    }
+    srand(time(NULL)); 
         
     //initialise all client_socket[] to 0 so not checked 
     for (i = 0; i < MAX_CLIENTS; i++){  
@@ -322,7 +472,8 @@ int main(int argc , char *argv[]){
                 if( clients[i].fd  == 0 )  
                 {  
                     clients[i].fd = new_socket;  
-                    clients[i].hs_status = 0;  
+                    clients[i].hs_status = 0;
+                    clients[i].lastbottle = NULL;    
                     printf("Adding to list of sockets as %d %d\n" , i, new_socket);  
                             
                     break;  
@@ -361,7 +512,8 @@ int main(int argc , char *argv[]){
                 //Close the socket and mark as 0 in list for reuse 
                 close( sd );  
                 clients[i].fd = 0;  
-                clients[i].hs_status = 0;  
+                clients[i].hs_status = 0;
+                clients[i].lastbottle = NULL;  
                 connected--;
                 if(connected==1){
                     send_all(0, clients, "You are alone again");
@@ -392,8 +544,42 @@ int main(int argc , char *argv[]){
                 parse_inc_msg(&clients[i], buffer);
                 if(strlen(clients[i].msg)!=0 && clients[i].msg_fin){
                     printf("%s\n",clients[i].msg);
+
+                    if((strpos(clients[i].msg,"!throwbottle ") == 0)){
+                        
+                        send_one(0, clients[i].fd, store_bottle(clients[i].msg+13));
+                    }
+                    else if((strpos(clients[i].msg,"!getbottle") == 0)){
+                        clients[i].lastbottle = get_bottle();
+                        if(clients[i].lastbottle == NULL){
+                            send_one(0, clients[i].fd, "No bottles at this time...");    
+                            continue;
+                        }
+                        send_one(0, clients[i].fd, read_file(clients[i].lastbottle));
+                    }
+                    else if((strpos(clients[i].msg,"!throwback") == 0)){
+                        if(clients[i].lastbottle == NULL){
+                            send_one(0, clients[i].fd, "You don't have a bottle");
+                            continue;
+                        }
+                        
+                        clients[i].lastbottle = NULL;
+                        send_one(0, clients[i].fd, "Bottle returned...");
+                    }
+                    else if((strpos(clients[i].msg,"!keep") == 0)){
+                        if(clients[i].lastbottle == NULL){
+                            send_one(0, clients[i].fd, "You don't have a bottle");
+                            continue;
+                        }
+                        remove(clients[i].lastbottle);
+                        clients[i].lastbottle = NULL;
+                        send_one(0, clients[i].fd, "You keep the bottle");
+                    }
+                    else{
+                        clients[i].lastbottle = NULL;
+                        send_all(clients[i].fd, clients, clients[i].msg);
+                    }
                     
-                    send_all(clients[i].fd, clients, clients[i].msg);
                 }
 
             }  

@@ -9,6 +9,10 @@
 <ul>
 	<li>!wipe</li>
 	<li>!godark</li>
+	<li>!throwbottle [msg]</li>
+	<li>!getbottle</li>
+	<li>!keep</li>
+	<li>!throwback</li>
 </ul>
 <script>
 	function toggleDark(){
@@ -44,23 +48,27 @@
 		
 	}
 
+	
 	function send(event,socket){
-			if(event.keyCode === 13){
-				var val = textBar.value;
-				textBar.value = "";
-				switch(val){
-					case "!godark":
-						toggleDark();
-						return;
-					case "!wipe":
-						document.getElementById('chat').innerHTML="";
-						return;
-					default:
-						break;
-				}
-				socket.send(val);
+		if(event.keyCode === 13){
+			var val = textBar.value;
+			textBar.value = "";
+			switch(val){
+				case "!godark":
+					toggleDark();
+					return;
+				case "!wipe":
+					document.getElementById('chat').innerHTML="";
+					return;
+				case "!git":
+					textBar.value = "https://github.com/curddd/c_ws_chat/";
+					return;
+				default:
+					break;
 			}
-		};
+			socket.send(val);
+		}
+	};
 
 	const annoy = new Audio("annoy.mp3");
 	var chatWindow = document.getElementById("chat");
@@ -87,22 +95,25 @@
 				
 				var br = document.createElement("br");
 				chatWindow.appendChild(br);
-				document.body.scrollTop = cont.scrollHeight;
+				document.body.scrollTop = container.scrollHeight;
 
 				annoy.play();
 			});
-			textBar.addEventListener("keyup", function(e){
-				send(e,socket);
-			});
+			textBar.addEventListener("keyup", sendHandler);
+			
 		};
 		socket.onerror = function(e){
 			socket.close();
 		}
 		socket.onclose = function(e){
-			textBar.removeEventListener("keyup", send);
+			textBar.removeEventListener("keyup", sendHandler);
 			setTimeout(function(){
 				connect();
 			}, 1000);
+		}
+
+		function sendHandler(e){
+			send(e,socket);
 		}
 		
 	}
@@ -131,3 +142,4 @@ body{
 </style>
 </body>
 </html>
+
